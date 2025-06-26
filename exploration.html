@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8"><!-- 文件編碼 -->
+  <title>探索地圖 | 圖鑑冒險</title><!-- 頁面標題 -->
+  <style>
+    body {
+      background-color: #111;
+      color: #0f0;
+      font-family: monospace;
+      text-align: center;
+      padding: 20px;
+    }
+    .map {
+      display: grid;
+      grid-template-columns: repeat(10, 40px);
+      grid-gap: 5px;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .tile {
+      width: 40px;
+      height: 40px;
+      background-color: #222;
+      color: #fff;
+      font-size: 20px;
+      cursor: pointer;
+      user-select: none;
+      transition: background-color 0.3s, color 0.3s;
+    }
+    .tile:hover {
+      background-color: #0f0;
+      color: #000;
+    }
+    #dex, #card, #progress-container {
+      margin-top: 20px;
+      border: 1px solid #0f0;
+      padding: 10px;
+      background-color: #000;
+      max-width: 400px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .glow {
+      animation: glow 1s infinite alternate;
+    }
+    @keyframes glow {
+      from { text-shadow: 0 0 5px #0f0; }
+      to { text-shadow: 0 0 20px #0f0; }
+    }
+    .progress-bar {
+      width: 100%;
+      background-color: #333;
+      border: 1px solid #0f0;
+      height: 20px;
+      margin-top: 5px;
+    }
+    .progress-fill {
+      height: 100%;
+      background-color: #0f0;
+      width: 0%;
+      transition: width 0.5s ease;
+    }
+    .rare { color: gold; }
+    .epic { color: deepskyblue; }
+    .legendary { color: orchid; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h2>🌍 探索世界 & 收集圖鑑</h2>
+  <p>點擊地圖上的生物以解鎖牠們的圖鑑資料！</p>
+  <div class="map" id="map"></div>
+  <div id="progress-container">
+    <div>圖鑑完成度：<span id="progress-percent">0%</span></div>
+    <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+  </div>
+  <h3>📘 已發現生物圖鑑</h3>
+  <div id="dex">尚未發現任何生物...</div>
+  <h3>📇 生物介紹卡</h3>
+  <div id="card">點擊圖鑑中的生物以查看介紹卡。</div>
+
+  <script>
+    const rareEffect = new Audio("https://cdn.pixabay.com/audio/2022/03/10/audio_1a0b4e44e3.mp3"); // 稀有音效
+    const evoSound = new Audio("https://cdn.pixabay.com/audio/2021/12/20/audio_f297b74f26.mp3"); // 進化音效
+    const megaSound = new Audio("https://cdn.pixabay.com/audio/2022/02/08/audio_74cc1c7207.mp3"); // 超進化音效
+    const sparkSound = new Audio("https://cdn.pixabay.com/audio/2022/03/11/audio_9cde7b8d67.mp3"); // 火花音效
+
+    // 生物資料
+    const creatures = [
+      { name: "火光松鼠", emoji: "🐿", rarity: "rare", seenCount: 0,
+        sound: "https://cdn.pixabay.com/audio/2022/03/15/audio_6a66d56b9f.mp3",
+        evolution: { name: "火光鼠王", emoji: "🦫" },
+        mega: { name: "熔岩之尾 - 超火松王", emoji: "🦥" } },
+
+      { name: "泡泡蛙", emoji: "🐸", rarity: "epic", seenCount: 0,
+        sound: "https://cdn.pixabay.com/audio/2022/03/15/audio_d9aee9fe3a.mp3",
+        evolution: { name: "泡泡暴蛙", emoji: "🦎" },
+        mega: { name: "水壓終結者 - 暴泡神", emoji: "🐊" } },
+
+      { name: "刺刺蘑菇獸", emoji: "🍄", rarity: "rare", seenCount: 0,
+        sound: "https://cdn.pixabay.com/audio/2021/09/14/audio_a4f6f1863b.mp3",
+        evolution: { name: "劇毒蘑皇", emoji: "🌵" },
+        mega: { name: "真菌核災獸", emoji: "💀" } },
+
+      { name: "閃電貓", emoji: "🐈", rarity: "epic", seenCount: 0,
+        sound: "https://cdn.pixabay.com/audio/2021/11/25/audio_1c14fcf388.mp3",
+        evolution: { name: "雷光獸", emoji: "🦁" },
+        mega: { name: "天雷爆裂貓皇", emoji: "⚡" } },
+
+      { name: "夜光狐", emoji: "🦊", rarity: "legendary", seenCount: 0,
+        sound: "https://cdn.pixabay.com/audio/2022/03/15/audio_23bca1a792.mp3",
+        evolution: { name: "幻影靈狐", emoji: "🦝" },
+        mega: { name: "冥界月影王", emoji: "🌑" } },
+
+      { name: "飛天橘子鳥", emoji: "🦜", rarity: "legendary", seenCount: 0,
+        sound: "https://cdn.pixabay.com/audio/2022/03/15/audio_f6550a49a2.mp3",
+        evolution: { name: "巨橘翔鷹", emoji: "🦅" },
+        mega: { name: "天空果神 - 飛橘王", emoji: "🍊" } },
+    ];
+
+    const seen = new Set(); // 紀錄已發現生物
+    const exploredTiles = new Set(); // 紀錄已探索格子
+
+    const mapDiv = document.getElementById("map"); // 地圖容器
+    const dexDiv = document.getElementById("dex"); // 圖鑑清單容器
+    const cardDiv = document.getElementById("card"); // 生物介紹卡容器
+    const progressPercent = document.getElementById("progress-percent"); // 進度百分比
+    const progressFill = document.getElementById("progress-fill"); // 進度條填充
+
+    let creaturePositions = []; // 紀錄怪物在地圖上的格子索引
+
+    // 播放指定音效
+    function playSound(src) {
+      const audio = new Audio(src);
+      audio.play();
+    }
+
+    // 語音播報文字
+    function speak(text) {
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = 'zh-TW';
+      window.speechSynthesis.speak(utter);
+    }
+
+    // 更新進度條和百分比
+    function updateProgress() {
+      const percent = Math.floor((seen.size / creatures.length) * 100);
+      progressPercent.textContent = `${percent}%`;
+      progressFill.style.width = `${percent}%`;
+    }
+
+    // 更新圖鑑清單
+    function updateDex() {
+      if (seen.size === 0) {
+        dexDiv.textContent = "尚未發現任何生物...";
+        return;
+      }
+      dexDiv.innerHTML = "<ul>" + [...seen].map(name => {
+        const c = creatures.find(c => c.name === name);
+        return `<li class="${c.rarity}" style="cursor:pointer;" onclick="showCard('${c.name}')">${c.emoji} ${c.name}</li>`;
+      }).join("") + "</ul>";
+    }
+
+    // 顯示生物介紹卡
+    function showCard(name) {
+      const c = creatures.find(c => c.name === name);
+      if (!c) return;
+      playSound(c.sound);
+      evoSound.play();
+      sparkSound.play();
+      speak(`${c.name} 的進化是 ${c.evolution.name}，超進化是 ${c.mega.name}`);
+
+      const canMega = c.seenCount >= 3 && exploredTiles.size >= 15;
+
+      const megaHTML = canMega ?
+        `<span class="glow" style="cursor:pointer;" onclick="showForm('${c.mega.name}', '${c.mega.emoji}', 'mega')">超進化型態：${c.mega.emoji} ${c.mega.name}</span>`
+        : `<em>需遇過三次且探索超過 15 格才能解鎖超進化</em>`;
+
+      cardDiv.innerHTML = `
+        <h4 class="glow">${c.emoji} ${c.name}</h4>
+        <p class="glow" style="cursor:pointer;" onclick="showForm('${c.evolution.name}', '${c.evolution.emoji}', 'evolution')">
+          進化型態：${c.evolution.emoji} ${c.evolution.name}</p>
+        <p>${megaHTML}</p>
+      `;
+    }
+
+    // 顯示進化說明彈窗
+    function showForm(name, emoji, type) {
+      const info = type === 'mega' ? "這是最終型態，擁有傳說級力量！" : "這是普通進化型，可提升能力值。";
+      speak(`${name}：${info}`);
+      alert(`${emoji} ${name}：\n${info}`);
+    }
+
+    // 產生並渲染地圖，隨機配置怪物
+    function generateMap() {
+      mapDiv.innerHTML = "";       // 清空地圖內容
+      creaturePositions = [];      // 重置怪物位置陣列
+
+      for (let i = 0; i < 100; i++) {
+        const tile = document.createElement("div"); // 建立一個格子
+        tile.className = "tile";
+        tile.dataset.index = i;
+
+        // 預設點擊動作：加入已探索格子
+        tile.onclick = () => {
+          exploredTiles.add(i);
+        };
+
+        mapDiv.appendChild(tile);
+      }
+
+      // 隨機配置怪物在地圖上，最多約15%機率出現
+      for (let i = 0; i < 100; i++) {
+        if (Math.random() < 0.15) {
+          const tile = mapDiv.children[i]; // 取得該格子DOM
+          const creature = creatures[Math.floor(Math.random() * creatures.length)];
+
+          tile.textContent = creature.emoji; // 顯示怪物
+          tile.title = creature.name;        // 滑鼠提示怪物名
+
+          // 設定點擊事件，點擊怪物觸發：
+          tile.onclick = () => {
+            exploredTiles.add(i); // 加入已探索格子
+            if (!seen.has(creature.name)) {
+              seen.add(creature.name); // 新發現怪物加入seen集合
+            }
+            creature.seenCount++;      // 該怪物出現次數+1
+            updateDex();              // 更新圖鑑清單
+            updateProgress();         // 更新進度條
+            playSound(creature.sound);// 播放怪物音效
+            rareEffect.play();        // 播放稀有音效
+            speak(`哇～是傳說中的 ${creature.name}！`);// 語音播報
+
+            // 地圖重新生成，刷新怪物分布位置
+            generateMap();
+          };
+
+          creaturePositions.push(i); // 記錄該怪物位置
+        }
+      }
+    }
+
+    generateMap(); // 初始化呼叫，生成地圖
+  </script>
+</body>
+</html>
